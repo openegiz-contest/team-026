@@ -83,6 +83,13 @@ def check_truck(truck_name, message):
     print(f"🛡️ Risk Score: {risk}/100")
     print(f"🚦 Risk Level: {level}")
 
+    if level == "HIGH":
+        print("🚨🚨 CRITICAL ALERT — HIGH RISK! 🚨🚨")
+        print(f"🚛 Самосвал: {truck_name}")
+        print(f"🔴 Risk Score: {risk}/100")
+        print("⚠️ Требуется проверка состояния самосвала!")
+        save_alert(truck_name, "HIGH_RISK", payload, fuel, speed)
+
     # Отправка ML-результата и Risk Score в InfluxDB
     try:
         send_ml_result(
