@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 from joblib import load
+from influx_writer import send_ml_result
 
 TRUCK_CAPACITY = 90
 LOW_FUEL = 25
@@ -62,6 +63,16 @@ def check_truck(truck_name, message):
 
     prediction = ml_model.predict(sample)[0]
     score = ml_model.decision_function(sample)[0]
+        # Отправляем результат ML в InfluxDB
+    try:
+        send_ml_result(
+            truck=truck_name,
+            is_anomaly=(prediction == -1),
+            score=score
+        )
+        print("📊 ML-результат отправлен в InfluxDB")
+    except Exception as error:
+        print(f"⚠️ Ошибка отправки в InfluxDB: {error}")
 
     if prediction == -1:
         print(f"🤖 ML: обнаружена аномалия (оценка {score:.4f})")
