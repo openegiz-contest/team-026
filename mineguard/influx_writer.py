@@ -16,12 +16,13 @@ def read_token():
     raise RuntimeError("INFLUXDB_TOKEN не найден")
 
 
-def send_ml_result(truck, is_anomaly, score):
+def send_ml_result(truck, is_anomaly, score, risk):
     point = (
         Point("mineguard_ml")
         .tag("truck", truck)
         .field("anomaly", int(is_anomaly))
         .field("score", float(score))
+        .field("risk_score", int(risk))
         .time(None, WritePrecision.NS)
     )
 
