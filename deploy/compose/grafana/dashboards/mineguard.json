@@ -19,7 +19,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 3,
+  "id": 4,
   "links": [],
   "panels": [
     {
@@ -30,7 +30,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
             "axisBorderShow": false,
@@ -75,8 +75,12 @@
                 "value": 0
               },
               {
+                "color": "#EAB839",
+                "value": 35
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 70
               }
             ]
           }
@@ -510,12 +514,12 @@
     "list": []
   },
   "time": {
-    "from": "now-15m",
-    "to": "now"
+    "from": "2026-10-13T12:41:09.127Z",
+    "to": "2026-10-13T13:41:09.127Z"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "MineGuard AI | Team 026",
   "uid": "team026-mineguard",
-  "version": 
-1}
+  "version": 1
+}
