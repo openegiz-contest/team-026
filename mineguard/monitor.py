@@ -5,7 +5,9 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import os
 import pandas as pd
+import paho.mqtt.client as mqtt
 from joblib import load
 
 from influx_writer import send_ml_result
@@ -127,57 +129,38 @@ def check_truck(truck_name, message):
         save_alert(truck_name, "LOW_FUEL", payload, fuel, speed)
 
 
-print("=== MineGuard AI — непрерывный мониторинг ===")
-print("Для остановки нажми Ctrl + C")
+print("=== MineGuard AI — непрерывный мониторинг ===", flush=True)
+print("Для остановки нажми Ctrl + C", flush=True)
 
-process = None
+MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+
+def on_connect(client, userdata, flags, reason_code, properties):
+    if reason_code == 0:
+        print("✅ MQTT подключён", flush=True)
+        client.subscribe("telemetry/+")
+    else:
+        print(f"❌ Ошибка MQTT: {reason_code}", flush=True)
+
+def on_message(client, userdata, msg):
+    truck_name = msg.topic.split("/")[-1]
+    if truck_name not in ("truck-01", "truck-02"):
+        return
+    try:
+        check_truck(truck_name, msg.payload.decode("utf-8"))
+    except (ValueError, json.JSONDecodeError, KeyError, TypeError) as error:
+        print(f"Ошибка обработки сообщения: {error}", flush=True)
+
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+client.on_connect = on_connect
+client.on_message = on_message
 
 try:
-    process = subprocess.Popen(
-        [
-            "docker", "exec", "-i", "openegiz-mosquitto-1",
-            "mosquitto_sub",
-            "-h", "localhost",
-            "-t", "telemetry/truck-01",
-            "-t", "telemetry/truck-02",
-            "-v",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
-
-    for line in process.stdout:
-        if not line.strip():
-            continue
-
-        try:
-            topic, message = line.strip().split(" ", 1)
-            truck_name = topic.split("/")[-1]
-
-            check_truck(truck_name, message)
-
-        except (
-            ValueError,
-            json.JSONDecodeError,
-            KeyError,
-            TypeError
-        ) as error:
-            print(f"Ошибка обработки сообщения: {error}")
-
+    client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+    client.loop_forever()
 except KeyboardInterrupt:
-    print("\nМониторинг остановлен пользователем.")
-
+    print("\\nМониторинг остановлен пользователем.")
 except OSError as error:
-    print(f"Ошибка запуска MQTT: {error}")
-
+    print(f"Ошибка подключения MQTT: {error}")
 finally:
-    if process is not None and process.poll() is None:
-        process.terminate()
-
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
+    client.disconnect()

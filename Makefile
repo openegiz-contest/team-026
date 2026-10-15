@@ -144,3 +144,10 @@ lint:
 	@bash scripts/compose-env.sh
 	docker compose -f deploy/compose/docker-compose.yml config -q
 	@echo "lint: ok"
+
+# MineGuard AI — Team 026
+.PHONY: mineguard
+
+mineguard: example-mine
+	docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml -f examples/mine/compose.yml -f mineguard/compose.yml up -d --build --wait mineguard-ai
+	@echo "MineGuard AI запущен. Grafana: http://localhost:3000"

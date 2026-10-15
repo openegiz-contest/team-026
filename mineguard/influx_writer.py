@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
@@ -27,8 +28,8 @@ def send_ml_result(truck, is_anomaly, score, risk):
     )
 
     with InfluxDBClient(
-        url="http://localhost:8086",
-        token=read_token(),
+        url=os.getenv("INFLUXDB_URL", "http://localhost:8086"),
+        token=os.getenv("INFLUXDB_TOKEN") or read_token(),
         org="opentwins",
     ) as client:
         client.write_api(write_options=SYNCHRONOUS).write(
