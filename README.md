@@ -1,40 +1,126 @@
-# <Team name>: a digital mine on OpenEgiz
+# MineGuard AI — Team 026
 
-> Team Repository of the contest “Digital Mine on OpenEgiz”. **Replace the contents of this file with the instructions for your Submission.** The AI Jury runs the Submission strictly by these instructions, from scratch, in the Judge Environment. Accepted languages: English, Kazakh, Russian.
+**AI-powered Mining Truck Safety Monitoring System**
+
+MineGuard AI — интеллектуальная система мониторинга карьерных самосвалов, разработанная на платформе OpenEgiz v1.0.4.
+
+Система анализирует телеметрию в реальном времени, обнаруживает аномалии с помощью машинного обучения, рассчитывает Risk Score и отображает результаты в Grafana.
 
 ## Running
 
-Requirements (Docker, `make`, Windows/WSL2 setup) are in [OPENEGIZ.md](OPENEGIZ.md) / [OPENEGIZ.ru.md](OPENEGIZ.ru.md).
+### Requirements
+
+- Docker Desktop с Docker Compose
+- GNU Make
+- Git
+- Linux или Windows с WSL2
+
+Инструкции по установке OpenEgiz: [OPENEGIZ.md](OPENEGIZ.md) / [OPENEGIZ.ru.md](OPENEGIZ.ru.md).
+
+### Installation and launch
 
 ```bash
-sudo apt install -y make   # if make is missing (clean Ubuntu)
-make up            # the OpenEgiz platform
-make example-mine  # the Example Mine: twins, simulator, dashboard
+git clone https://github.com/openegiz-contest/team-026.git
+cd team-026
+make mineguard
 ```
 
-Replace these commands with the commands of your Submission. The Submission must start by following these instructions without manual intervention (Rules, clause 6.4); downloading datasets and models and building are also listed here.
+Команда `make mineguard` предназначена для запуска платформы OpenEgiz, симулятора шахты и сервиса MineGuard AI.
+
+Обученная ML-модель включена в репозиторий. Отдельная установка Python и ручное обучение модели не требуются.
 
 ## What to open
 
-- Grafana: the address and login are printed by `make up`.
-- <where to see the mine visualization, which dashboards>
+После запуска открой Grafana:
 
-## Repository contents
+**http://localhost:3000**
 
-| Path | Contents |
-|---|---|
-| `team/` | Directory for the Team's code. Using it is optional: any part may be changed, including the platform core |
-| `SUBMISSION.md` | Description of the Submission: **required** |
-| `presentation.pdf` | Presentation: **required**, in the repository root |
-| `examples/mine/` | The Example Mine: shows how a digital mine is built on OpenEgiz. It is not a basis for the Submission |
-| `OPENEGIZ.md`, `OPENEGIZ.ru.md` | Documentation of the OpenEgiz platform v1.0.4 |
+Логин и пароль Grafana выводятся при запуске OpenEgiz.
 
-The Submission is the `main` branch at the moment of the Freeze; other branches are not evaluated.
+Панель MineGuard AI:
 
-## License
+**http://localhost:3000/d/team026-mineguard**
 
-The Submission is distributed under the MIT license, see [LICENSE](LICENSE). Copyright belongs to the Team: add the line `Copyright (c) 2026 <Team members>` to `LICENSE`.
+На панели отображаются данные самосвалов, результаты ML-анализа и Risk Score.
 
----
+## System Architecture
 
-Platform: [aleka07/openegiz](https://github.com/aleka07/openegiz). If the platform was useful to you, support the project with a star on GitHub.
+Поток обработки данных:
+
+**OpenEgiz Simulator → MQTT Mosquitto → MineGuard AI → InfluxDB → Grafana**
+
+MineGuard AI использует три параметра самосвалов:
+
+- Payload — масса груза, тонн
+- Fuel — уровень топлива, %
+- Speed — скорость, км/ч
+
+Для обнаружения статистических аномалий используется алгоритм **IsolationForest** из библиотеки scikit-learn.
+
+## Risk Score
+
+Система рассчитывает оценку риска от 0 до 100 на основе загрузки, уровня топлива и обнаруженных ML-аномалий.
+
+| Risk Score | Level | Description |
+|---|---|---|
+| 0–34 | LOW | Низкий риск |
+| 35–69 | MEDIUM | Повышенное внимание |
+| 70–100 | HIGH | Требуется проверка |
+
+При достижении уровня HIGH система формирует предупреждение `HIGH_RISK`.
+
+Risk Score — демонстрационная эввристическая оценка, а не подтверждённая вероятность аварии.
+
+Verification
+
+Проверить работу AI-монитора:
+
+docker logs --tail 40 openegiz-mineguard-ai-1
+
+В логах должны отображаться телеметрия самосвалов, результаты ML-анализа и отправка Risk Score в InfluxDB.
+
+Repository Contents
+
+Path
+
+Description
+
+mineguard/
+
+ML-модель, Python-мониторинг, Dockerfile
+
+mineguard/compose.yml
+
+Конфигурация контейнера MineGuard AI
+
+deploy/compose/
+
+Docker-инфраструктура OpenEgiz
+
+examples/mine/
+
+Симулятор шахты OpenEgiz
+
+SUBMISSION.md
+
+Описание конкурсного проекта
+
+presentation.pdf
+
+Презентация для жюри
+
+OPENEGIZ.md
+
+Документация платформы
+
+Limitations
+
+Система протестирована на двух виртуальных самосвалах. ML-модель обнаруживает статистические отклонения, но не прогнозирует реальные аварии. Для промышленного применения необходима дополнительная проверка на реальных данных.
+
+Полный запуск с нуля в окружении жюри пока не проверен.
+
+License
+
+MIT License. See LICENSE.
+
+Team 026 — Digital Mine on OpenEgiz, 2026
