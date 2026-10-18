@@ -28,3 +28,14 @@ build/WebGL Build.loader.js
 build/WebGL Build.framework.js
 build/WebGL Build.data
 build/WebGL Build.wasm
+
+# MineGuard runtime outputs (not part of contest source)
+mineguard/data/
+mineguard/alerts.csv
+mineguard/telemetry.csv
+mineguard/screenshots/
+mineguard/dashboard_backups/
+mineguard/monitor_backup.py
+README.backup.md
+**/.env.local
+**/.env.*.local

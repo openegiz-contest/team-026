@@ -1,3 +1,9 @@
+"""Counterfactual safety assessment using the same model as monitor.py.
+
+Computations do not mutate any twins. The UI can explicitly publish selected
+results to Team 026 sandbox twins; live Example Mine twins are never changed.
+"""
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -5,77 +11,56 @@ from joblib import load
 
 from risk_score import calculate_risk, risk_level
 
-
-# Загружаем обученную ML-модель
 MODEL_PATH = Path(__file__).parent / "risk_model.joblib"
 model = load(MODEL_PATH)
 
 
+def risk_factors(payload, fuel, is_anomaly):
+    """Explain the exact heuristic already used by the live monitoring service."""
+    return {
+        "Overload / high payload": 50 if payload > 90 else 25 if payload >= 81 else 0,
+        "Low fuel": 30 if fuel < 15 else 15 if fuel < 25 else 0,
+        "ML outlier": 35 if is_anomaly else 0,
+    }
+
+
 def simulate(payload, fuel, speed):
-    # Проверяем допустимость исходных значений
-    if payload < 0 or not 0 <= fuel <= 100 or speed < 0:
-        raise ValueError("Некорректные параметры самосвала")
+    values = (payload, fuel, speed)
+    if any(not math.isfinite(float(v)) for v in values):
+        raise ValueError("All inputs must be finite numeric values")
+    if not (0 <= payload <= 120 and 0 <= fuel <= 100 and 0 <= speed <= 80):
+        raise ValueError("Expected payload 0–120 t, fuel 0–100%, speed 0–80 km/h")
 
-    # Подготавливаем данные для ML
-    data = pd.DataFrame(
-        [[payload, fuel, speed]],
-        columns=["payload", "fuel", "speed"]
-    )
-
-    # Проверяем аномалию
-    prediction = model.predict(data)[0]
-    is_anomaly = prediction == -1
-
-    # Рассчитываем риск
-    risk = calculate_risk(
-        payload=payload,
-        fuel=fuel,
-        is_anomaly=is_anomaly
-    )
+    sample = pd.DataFrame([[payload, fuel, speed]], columns=["payload", "fuel", "speed"])
+    is_anomaly = bool(model.predict(sample)[0] == -1)
+    decision_score = float(model.decision_function(sample)[0])
+    factors = risk_factors(payload, fuel, is_anomaly)
+    risk = int(calculate_risk(payload=payload, fuel=fuel, is_anomaly=is_anomaly))
+    assert risk == min(sum(factors.values()), 100)
 
     return {
-        "payload": payload,
-        "fuel": fuel,
-        "speed": speed,
+        "payload": float(payload),
+        "fuel": float(fuel),
+        "speed": float(speed),
         "anomaly": is_anomaly,
+        "ml_decision_score": round(decision_score, 5),
         "risk": risk,
-        "level": risk_level(risk)
+        "level": risk_level(risk),
+        "factors": factors,
     }
 
 
 def show_result(name, result):
     print(f"\n--- {name} ---")
-    print(f"Груз: {result['payload']} тонн")
-    print(f"Топливо: {result['fuel']}%")
-    print(f"Скорость: {result['speed']} км/ч")
-    print(f"ML-аномалия: {result['anomaly']}")
-    print(f"Risk Score: {result['risk']}/100")
-    print(f"Уровень риска: {result['level']}")
+    for title, key, unit in (("Груз", "payload", "т"), ("Топливо", "fuel", "%"), ("Скорость", "speed", "км/ч")):
+        print(f"{title}: {result[key]} {unit}")
+    print(f"ML anomaly: {result['anomaly']} (decision={result['ml_decision_score']:.4f})")
+    print(f"Risk Score: {result['risk']}/100 ({result['level']})")
 
 
 if __name__ == "__main__":
-    print("=== MineGuard AI | What-if Simulator ===")
-
-    # Сценарий 1: нормальная работа
-    before = simulate(
-        payload=70,
-        fuel=60,
-        speed=25
-    )
-
-    # Сценарий 2: перегрузка и мало топлива
-    after = simulate(
-        payload=95,
-        fuel=12,
-        speed=35
-    )
-
+    before = simulate(70, 60, 25)
+    after = simulate(95, 12, 35)
     show_result("BEFORE", before)
     show_result("AFTER", after)
-
-    difference = after["risk"] - before["risk"]
-
-    print("\n=== COMPARISON ===")
-    print(f"Изменение Risk Score: {difference:+d} баллов")
-    print(f"До: {before['level']}")
-    print(f"После: {after['level']}")
+    print(f"\nRisk delta: {after['risk'] - before['risk']:+d} points")

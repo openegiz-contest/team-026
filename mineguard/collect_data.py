@@ -1,10 +1,13 @@
 import csv
 import json
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
-DATA_FILE = Path(__file__).parent / "telemetry.csv"
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_FILE = DATA_DIR / "telemetry.csv"
 
 def save_data(truck, payload, fuel, speed):
     new_file = not DATA_FILE.exists() or DATA_FILE.stat().st_size == 0
@@ -44,6 +47,7 @@ try:
         bufsize=1
     )
 
+    collected = 0
     for line in process.stdout:
         try:
             topic, message = line.strip().split(" ", 1)
@@ -55,6 +59,13 @@ try:
             speed = float(data["speed"]["properties"]["value"])
 
             save_data(truck, payload, fuel, speed)
+            collected += 1
+
+            # Optional bounded training export; default 0 means continuous.
+            limit = int(os.getenv("MINEGUARD_COLLECT_LIMIT", "0"))
+            if limit > 0 and collected >= limit:
+                print(f"Собрано {limit} записей. Сбор завершён.", flush=True)
+                break
 
             print(
                 f"Сохранено: {truck} | "

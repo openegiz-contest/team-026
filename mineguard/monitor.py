@@ -1,7 +1,6 @@
 
 import csv
 import json
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -12,12 +11,15 @@ from joblib import load
 
 from influx_writer import send_ml_result
 from risk_score import calculate_risk, risk_level
+from ditto_bridge import NAMESPACE, live_monitor_values, make_ditto_command
 
 
 TRUCK_CAPACITY = 90
 LOW_FUEL = 25
 
-ALERTS_FILE = Path(__file__).parent / "alerts.csv"
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+ALERTS_FILE = DATA_DIR / "alerts.csv"
 ML_MODEL_FILE = Path(__file__).parent / "risk_model.joblib"
 
 ml_model = load(ML_MODEL_FILE)
@@ -49,7 +51,7 @@ def save_alert(truck_name, alert_type, payload, fuel, speed):
         ])
 
 
-def check_truck(truck_name, message):
+def check_truck(truck_name, message, publisher=None):
     data = json.loads(message)
     features = data["value"]
 
@@ -81,6 +83,19 @@ def check_truck(truck_name, message):
     )
 
     level = risk_level(risk)
+
+    # Original Team 026 twins, updated via the OpenEgiz MQTT -> Ditto bridge.
+    # This publishes an observed risk assessment, NEVER equipment commands.
+    if publisher is not None:
+        route_km = features.get("route_position", {}).get("properties", {}).get("value", 0)
+        truck_state = features.get("state", {}).get("properties", {}).get("value", "unknown")
+        live_name = "live-" + truck_name
+        live_values = live_monitor_values(payload, fuel, speed, route_km,
+                                          risk, level, is_anomaly, truck_state)
+        packet = make_ditto_command(live_name, live_values)
+        info = publisher.publish("telemetry/mg026-" + live_name, json.dumps(packet), qos=1)
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            print(f"⚠️ Ditto MQTT publication failed for {live_name}: {info.rc}", flush=True)
 
     print(f"🛡️ Risk Score: {risk}/100")
     print(f"🚦 Risk Level: {level}")
@@ -147,7 +162,7 @@ def on_message(client, userdata, msg):
     if truck_name not in ("truck-01", "truck-02"):
         return
     try:
-        check_truck(truck_name, msg.payload.decode("utf-8"))
+        check_truck(truck_name, msg.payload.decode("utf-8"), publisher=client)
     except (ValueError, json.JSONDecodeError, KeyError, TypeError) as error:
         print(f"Ошибка обработки сообщения: {error}", flush=True)
 

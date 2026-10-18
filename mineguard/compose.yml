@@ -1,5 +1,21 @@
+# Team 026: original Ditto mine twins, real-time risk monitor, and decision lab.
 services:
+  mineguard-setup:
+    build:
+      context: ../..
+      dockerfile: mineguard/Dockerfile
+    restart: "no"
+    command: ["python", "-u", "ditto_bridge.py"]
+    environment:
+      DITTO_URL: http://ditto-nginx:80
+      DITTO_PASSWORD: ${DITTO_PASSWORD:?DITTO_PASSWORD is required}
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
   mineguard-ai:
+    volumes:
+      - mineguard-data:/app/data
     build:
       context: ../..
       dockerfile: mineguard/Dockerfile
@@ -10,7 +26,37 @@ services:
       INFLUXDB_URL: http://influxdb:8086
       INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:?INFLUXDB_TOKEN is required}
     depends_on:
+      mineguard-setup:
+        condition: service_completed_successfully
       mosquitto:
         condition: service_healthy
       influxdb:
         condition: service_healthy
+
+  mineguard-web:
+    build:
+      context: ../..
+      dockerfile: mineguard/Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "streamlit", "run", "what_if_app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      DITTO_URL: http://ditto-nginx:80
+      DITTO_PASSWORD: ${DITTO_PASSWORD:?DITTO_PASSWORD is required}
+    depends_on:
+      mineguard-setup:
+        condition: service_completed_successfully
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "${OPENEGIZ_BIND:-127.0.0.1}:8501:8501"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+volumes:
+  mineguard-data:

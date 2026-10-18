@@ -1,0 +1,8 @@
+# Minimize MineGuard build context: this Dockerfile only needs mineguard/*.
+**
+!mineguard/
+!mineguard/*.py
+!mineguard/*.joblib
+!mineguard/requirements.txt
+!mineguard/tests/
+!mineguard/tests/*.py

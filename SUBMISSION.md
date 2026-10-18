@@ -1,83 +1,78 @@
-# MineGuard AI — Team 026
+# MineGuard AI 2.1 — Team 026
+
+## Замысел (Intent)
+
+**Объект:** учебный цифровой двойник транспортного участка открытого карьера: один погрузчик, два автосамосвала грузоподъёмностью до 90 т, дорога длиной 3,2 км в одну сторону, первичная дробилка и пункт заправки. Это **вымышленный полигон**, построенный на платформе OpenEgiz, а не модель реального действующего месторождения.
+
+**Кто использует:** диспетчер автотранспорта и инженер по промышленной безопасности. **Какое решение:** при росте нагрузок, ухудшении дороги, очереди у дробилки или ремонте оценить компромисс между рассчитанной добычей и предупреждениями безопасности. **Почему:** отдельные показания телеметрии не раскрывают связанных последствий для дороги, погрузки, очереди и производства. Один набор связанных двойников показывает эти зависимости на пространственной схеме.
+
+Параметры и рамки: 90 т — учебное округление близкого класса техники (Komatsu HD785-7: 91 т; CAT 777: 91,7 т); 3,2 км, ковш 22 т, 35 с/ковш и базовая модель движения взяты из `examples/mine/simulator.py` OpenEgiz. Остальные ограничения показаны в README и коде `operations_sim.py`. Это **не калибровка промышленного рудника**. Производственные результаты не являются прогнозом реального предприятия.
 
 ## Team
 
-Team: 026
+- **Team 026** · сольное участие
+- **GitHub user:** `zhanibekoralbekuly-lang`
+- **Repository:** https://github.com/openegiz-contest/team-026
+- **Platform:** OpenEgiz v1.0.4 / Eclipse Ditto / MQTT
 
-GitHub repository: https://github.com/openegiz-contest/team-026
+## Mine & connected twins
 
-## Mine
+В собственном пространстве имён **`org.mineguard.team026`** автоматически создаются девять цифровых двойников с именами и отношениями `attributes.connected_to`: `pit-01`, `loader-01`, `truck-01`, `truck-02`, `haul-road-01`, `crusher-01`, `fuel-bay-01`, `live-truck-01`, `live-truck-02`.
 
-MineGuard AI is an intelligent monitoring system for mining haul trucks, integrated with OpenEgiz v1.0.4.
+Семь связаны с контрфактическим What-if; два зеркалируют наблюдаемую телеметрию и Risk Score, рассчитанный MineGuard. **Все обновления MineGuard идут через MQTT → Ditto**. Streamlit читает текущие состояния **из Ditto**, а не из локального CSV. За пространственную схему отвечает оригинальный `mineguard/mine_map.py`. Reference Example Mine — только источник событий, не заявляем его неизменённый дашборд как командную работу.
 
-The system uses the OpenEgiz Example Mine simulator as a telemetry source. It monitors two simulated haul trucks: truck-01 and truck-02.
+## Modules / What-if scenarios
 
-The monitored parameters are:
-- Payload (tonnes)
-- Fuel level (%)
-- Speed (km/h)
-
-## Modules and What-if Scenarios
-
-| Module or Scenario | What it does | How to see it on the Stand | How to undo it |
+| Модуль или сценарий | Функция | Как увидеть на Стенде | Как отменить |
 |---|---|---|---|
-| Telemetry monitoring | Receives truck data through MQTT | Grafana dashboard | Automatic |
-| ML anomaly detection | Detects unusual telemetry using IsolationForest | ML Anomaly panel | Automatic |
-| Risk Score | Calculates a heuristic risk score from 0 to 100 | Risk Score panel | Automatic |
-| HIGH RISK alert | Generates a warning when Risk Score reaches 70 | Docker logs and alerts.csv | Automatic |
+| Live AI Fleet | MQTT → IsolationForest → Risk Score → новые live-truck двойники Ditto, InfluxDB и Grafana | `localhost:8501` → 🗺️ LIVE; Grafana `localhost:3000/d/team026-mineguard` | Наблюдение, не управление |
+| 2D Connected Mine | Схема погрузчик → два самосвала → дорога → дробилка, заправка, добыча; значения из Ditto | `localhost:8501` → 🗺️; таблица двойников | Автоматическое обновление LIVE, What-if Reset |
+| Overload / low fuel | Пересчёт ML, риска и добычи, публикация в 7 двойников | Пресет «Перегрузка + мало топлива» → Apply → карта / Safety | Кнопка «Вернуть базовый режим» |
+| Slippery road | Замедление дороги, новые данные самосвалов, дробилка и добыча, 7 twin updates | «Скользкая дорога» → Apply → карта / Production | «Вернуть базовый режим» |
+| Crusher congestion | Очередь на дробилке, тоннаж и продолжительность цикла | «Очередь на дробилке» → Apply → карта / Production | «Вернуть базовый режим» |
+| Truck repair | Один самосвал на ремонте, меняются рейсы и тоннаж | «Ремонт одного самосвала» → Apply → карта / Production | «Вернуть базовый режим» |
+| Low fuel / refuel | Низкое топливо и 10-минутная модель заправки | «Низкий уровень топлива» → Apply → Production | «Вернуть базовый режим» |
+| ML atypical trip | Реальная классификация признаков загруженной модели IsolationForest | «ML-аномалия · нетипичный рейс» → Safety | Переключить пресет / Reset |
+| Evidence export | Исходные настройки, Risk Score и модельные результаты JSON | `localhost:8501` → Evidence → Download | Удалить локальный файл |
 
-Risk levels:
-- LOW: 0–34
-- MEDIUM: 35–69
-- HIGH: 70–100
+**Управление:** изменение ползунков НЕ посылает команды. Только явная кнопка **Apply** обновляет **песочницу MineGuard** в Ditto, а **Reset** публикует базовый режим. Эти действия не управляют карьерным оборудованием, не меняют Example Mine и live-поток Grafana.
 
-The current implementation monitors incoming telemetry. It does not provide an interactive what-if scenario controller.
+## Clean boot in Judge Environment
 
-## What works and what does not
+```bash
+sudo apt-get update
+sudo apt-get install -y make
+make mineguard
+```
 
-Verified:
-- MQTT telemetry reception
-- IsolationForest anomaly detection
-- Risk Score calculation
-- Automatic HIGH RISK alert generation
-- InfluxDB integration
-- Grafana visualization
-- Docker container execution
+Выполнять из корня клонированного репозитория. Скрипт `make mineguard` генерирует секреты, запускает OpenEgiz, исходный Example Mine, оригинальный job `mineguard-setup` (9 twins), `mineguard-ai` и `mineguard-web`. Никаких ручных шагов внутри установки не предусмотрено.
 
-Not yet verified:
-- Complete deployment from a clean Judge Environment
+**Проверка:** после запуска открыть `http://localhost:8501`; переключить сценарий, нажать Apply, посмотреть изменения связанных двойников; открыть `http://localhost:3000/d/team026-mineguard`.
 
-## Data and Assumptions
+## What works, evidence and limits
 
-The project uses synthetic telemetry generated by the OpenEgiz Example Mine simulator.
+- **Подтверждено пользовательскими логами:** локальный ML-мониторинг получает сообщения двух самосвалов, пишет в InfluxDB, обновляет Risk Score; прежний Streamlit был Healthy и интерактивен; ранее 16/16 тестов и Docker-сборка пройдены, данные persist в Docker Volume.
+- **Подтверждено автономными тестами новой версии:** правила риска, синтетические сценарии, формат нативных Ditto MQTT-команд, список девяти связанных двойников и семи сценических обновлений. См. `CONTEST_EVIDENCE.md`.
+- **Требует финальной проверки на машине с Docker:** новая связка `mineguard-setup → MQTT → Ditto GET → 2D map`. Самостоятельно имитировать скриншот нового полного запуска нельзя; это отмечено как ограничение.
 
-The IsolationForest model uses three features: payload, fuel and speed.
+## Данные и допущения
 
-The trained model is included in the repository at mineguard/risk_model.joblib.
+Все входы телеметрии **синтетические**, без персональных или конфиденциальных промышленных данных. Модель `risk_model.joblib` обучена на синтетических (payload, fuel, speed) и выявляет статистические выбросы, **не аварии**. Risk Score — воспроизводимая эвристика от 0 до 100, **не процент вероятности аварии**. Операционная модель дискретна (10 с), одна очередь погрузки и одна дробилки, условный расход топлива в процентных пунктах, объём 90 т. Реальные зависимости могут отличаться.
 
-Risk Score thresholds are demonstration heuristics, not certified industrial safety limits
+**Источники параметров:**
+- [OpenEgiz Example Mine](examples/mine/simulator.py) — длина рейса 3,2 км, груз 90 т, ковш 22 т, 35 с на проход, 60 с разгрузка (демонстрационные значения проекта).
+- [Komatsu HD785-7](https://www.komatsu.eu/en/Product-Archive/Rigid-Dump-Trucks/HD785-7) — реальный rated payload 91 т как ориентир класса техники, не как источник всех параметров.
+- [CAT 777](https://www.cat.com/en_US/products/new/equipment/off-highway-trucks/off-highway-trucks/115560.html) — 91,7 т target payload, ориентир класса.
 
-## Mine visualization
+Собственные модели, графика и код Team 026 — MIT. Стороннее ПО и исходники OpenEgiz сохраняют свои лицензии. Внешние датасеты, требующие загрузки на стенд, отсутствуют.
 
-Grafana dashboard:
-http://localhost:3000/d/team026-mineguard
+## Visualization and presentation
 
-Dashboard: MineGuard AI | Team 026
+- **Space / processes:** `localhost:8501` → 🗺️; карта живых и сценарных двойников, привязанные к объектам риски, местоположение, скорость, тоннаж, загрузка и очередь.
+- **Operational charts / linked outcomes:** `localhost:8501` → 🏭; график накопленной добычи и узкие места процесса.
+- **Live time series:** `localhost:3000/d/team026-mineguard` Grafana.
+- **Presentation:** `presentation.pdf` в корне; инструкция демонстрации — `README.md`.
 
-The dashboard displays truck telemetry, ML anomaly detection and Risk Score.
+## Known limitations
 
-## Limitations
-
-- Tested with two simulated haul trucks.
-- The ML model detects statistical anomalies, not actual accidents.
-- Risk Score is not a calibrated probability of an accident.
-- Real industrial deployment requires validation with operational data.
-- The system does not control mining equipment.
-
-## Presentation
-
-The presentation is provided as presentation.pdf in the repository root.
-
----
-
-Platform: OpenEgiz v1.0.4.
+Модель учебная: два виртуальных самосвала, без маршрутизации по реальным дорогам, физических происшествий, финансовых эффектов и статистически обоснованных доверительных интервалов. Map — **технологическая план-схема, а не географическая карта**. Сценарные позиции на карте условны; LIVE позиции берутся из Ditto. Что-если обновляет согласованные данные 7 двойников только при нажатии Apply; это не интеграция с PLC/SCADA. Калибровки на фактическом руднике нет.

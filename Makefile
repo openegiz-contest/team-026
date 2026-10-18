@@ -149,5 +149,12 @@ lint:
 .PHONY: mineguard
 
 mineguard: example-mine
-	docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml -f examples/mine/compose.yml -f mineguard/compose.yml up -d --build --wait mineguard-ai
-	@echo "MineGuard AI запущен. Grafana: http://localhost:3000"
+	docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml -f examples/mine/compose.yml -f mineguard/compose.yml up -d --build --wait --wait-timeout 300 mineguard-ai mineguard-web
+	@echo "MineGuard AI running | Grafana: http://localhost:3000/d/team026-mineguard | What-if: http://localhost:8501"
+
+
+# Real OpenEgiz round-trip verification. Updates ONLY sandbox twins and restores
+# them to baseline. Run after make mineguard if you want network-level proof.
+.PHONY: mineguard-check
+mineguard-check:
+	docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml -f examples/mine/compose.yml -f mineguard/compose.yml exec -T mineguard-web python -u /app/smoke_ditto.py
