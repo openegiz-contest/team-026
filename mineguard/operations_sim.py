@@ -32,6 +32,15 @@ class Scenario:
     shift_hours: int = 8
 
 
+@dataclass(frozen=True)
+class Stochastic:
+    """Optional sampled variability; defaults leave deterministic model unchanged."""
+    loading_multiplier: float = 1.0
+    dump_multiplier: float = 1.0
+    repair_truck_01_minutes: int = 0
+    repair_truck_02_minutes: int = 0
+
+
 @dataclass
 class _Truck:
     state: str = "waiting_loader"
@@ -63,7 +72,7 @@ def _validate(s: Scenario) -> None:
         raise ValueError("Shift must be 1–24 hours")
 
 
-def run_haul_shift(scenario: Scenario) -> dict:
+def run_haul_shift(scenario: Scenario, stochastic: Stochastic | None = None) -> dict:
     """Run two trucks against one loader and one crusher, at 10 s resolution.
 
     The requested payload is capped at the modelled 90 t truck capacity. A
@@ -73,6 +82,13 @@ def run_haul_shift(scenario: Scenario) -> dict:
     """
     s = scenario
     _validate(s)
+    stochastic = stochastic or Stochastic()
+    if not (0.5 <= stochastic.loading_multiplier <= 1.5 and
+            0.5 <= stochastic.dump_multiplier <= 1.5):
+        raise ValueError("Stochastic duration multipliers must be within 0.5–1.5")
+    if not (0 <= stochastic.repair_truck_01_minutes <= 240 and
+            0 <= stochastic.repair_truck_02_minutes <= 240):
+        raise ValueError("Stochastic repair durations must be within 0–240 min")
     dt = 10
     horizon = s.shift_hours * 3600
     delivered = 0.0
@@ -80,7 +96,7 @@ def run_haul_shift(scenario: Scenario) -> dict:
     capacity = min(s.payload_t, TRUCK_CAPACITY_T)
     actual_speed = max(1.0, s.loaded_speed_kmh * (1 - s.road_slowdown_pct / 100))
     return_speed = max(1.0, EMPTY_SPEED_KMH * (1 - s.road_slowdown_pct / 100))
-    loading_seconds = (math.ceil(capacity / LOADER_BUCKET_T) * LOADER_PASS_SECONDS) if capacity else 0
+    loading_seconds = (math.ceil(capacity / LOADER_BUCKET_T) * LOADER_PASS_SECONDS * stochastic.loading_multiplier) if capacity else 0
     haul_seconds = ROUTE_KM / actual_speed * 3600
     return_seconds = ROUTE_KM / return_speed * 3600
     trucks = [_Truck(fuel_pct=s.fuel_pct) for _ in range(2)]
@@ -139,10 +155,12 @@ def run_haul_shift(scenario: Scenario) -> dict:
         for i, truck in enumerate(trucks):
             if truck.state != "waiting_loader":
                 continue
-            if i == 0 and s.maintenance_minutes and t >= maintenance_at and not truck.breakdown_done:
+            repair_minutes = (max(s.maintenance_minutes, stochastic.repair_truck_01_minutes)
+                              if i == 0 else stochastic.repair_truck_02_minutes)
+            if repair_minutes and t >= maintenance_at and not truck.breakdown_done:
                 truck.breakdown_done = True
                 truck.state = "repair"
-                truck.timer = 60 * s.maintenance_minutes
+                truck.timer = 60 * repair_minutes
             elif truck.fuel_pct < REFUEL_THRESHOLD_PCT:
                 truck.state = "refueling"
                 truck.timer = REFUEL_SECONDS
@@ -166,7 +184,7 @@ def run_haul_shift(scenario: Scenario) -> dict:
                 if truck.state == "waiting_crusher":
                     crusher_owner = i
                     truck.state = "dumping"
-                    truck.timer = DUMP_SECONDS + s.crusher_delay_seconds
+                    truck.timer = DUMP_SECONDS * stochastic.dump_multiplier + s.crusher_delay_seconds
                     break
         if (t + dt) % 1800 == 0:
             delivered_by_half_hour.append({

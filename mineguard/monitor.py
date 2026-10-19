@@ -5,12 +5,12 @@ from datetime import datetime
 from pathlib import Path
 
 import os
-import pandas as pd
 import paho.mqtt.client as mqtt
 from joblib import load
 
 from influx_writer import send_ml_result
 from risk_score import calculate_risk, risk_level
+from ml_gate import evaluate_ml
 from ditto_bridge import NAMESPACE, live_monitor_values, make_ditto_command
 
 
@@ -64,16 +64,12 @@ def check_truck(truck_name, message, publisher=None):
     print(f"Топливо: {fuel}%")
     print(f"Скорость: {speed} км/ч")
 
-    # ML: обнаружение необычного поведения
-    sample = pd.DataFrame(
-        [[payload, fuel, speed]],
-        columns=["payload", "fuel", "speed"]
-    )
-
-    prediction = ml_model.predict(sample)[0]
-    score = ml_model.decision_function(sample)[0]
-
-    is_anomaly = prediction == -1
+    # Only loaded travel is within the IsolationForest training domain.
+    # Unscored != safe: payload/fuel rules still contribute to Risk Score.
+    truck_state = features.get("state", {}).get("properties", {}).get("value", "unknown")
+    decision = evaluate_ml(ml_model, payload, fuel, speed, truck_state)
+    is_anomaly = decision.anomaly
+    score = decision.score
 
     # Расчёт Risk Score
     risk = calculate_risk(
@@ -88,10 +84,10 @@ def check_truck(truck_name, message, publisher=None):
     # This publishes an observed risk assessment, NEVER equipment commands.
     if publisher is not None:
         route_km = features.get("route_position", {}).get("properties", {}).get("value", 0)
-        truck_state = features.get("state", {}).get("properties", {}).get("value", "unknown")
         live_name = "live-" + truck_name
         live_values = live_monitor_values(payload, fuel, speed, route_km,
-                                          risk, level, is_anomaly, truck_state)
+                                          risk, level, is_anomaly, truck_state,
+                                          ml_scored=decision.scored, ml_score=score)
         packet = make_ditto_command(live_name, live_values)
         info = publisher.publish("telemetry/mg026-" + live_name, json.dumps(packet), qos=1)
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
@@ -113,18 +109,21 @@ def check_truck(truck_name, message, publisher=None):
             truck=truck_name,
             is_anomaly=is_anomaly,
             score=score,
-            risk=risk
+            risk=risk,
+            ml_scored=decision.scored,
         )
         print("📊 ML и Risk Score отправлены в InfluxDB")
     except Exception as error:
         print(f"⚠️ Ошибка отправки в InfluxDB: {error}")
 
     # Проверка ML-аномалии
-    if is_anomaly:
+    if not decision.scored:
+        print(f"🤖 ML: не применяется ({decision.reason}); это не означает отсутствие риска")
+    elif is_anomaly:
         print(f"🤖 ML: обнаружена аномалия (оценка {score:.4f})")
         save_alert(truck_name, "ML_ANOMALY", payload, fuel, speed)
     else:
-        print(f"🤖 ML: обычное поведение (оценка {score:.4f})")
+        print(f"🤖 ML: обычное поведение при движении (оценка {score:.4f})")
 
     # Проверка загрузки
     if payload > TRUCK_CAPACITY:

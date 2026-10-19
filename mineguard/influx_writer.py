@@ -17,15 +17,19 @@ def read_token():
     raise RuntimeError("INFLUXDB_TOKEN не найден")
 
 
-def send_ml_result(truck, is_anomaly, score, risk):
+def send_ml_result(truck, is_anomaly, score, risk, ml_scored=True):
     point = (
         Point("mineguard_ml")
         .tag("truck", truck)
         .field("anomaly", int(is_anomaly))
-        .field("score", float(score))
         .field("risk_score", int(risk))
+        .field("ml_scored", int(ml_scored))
         .time(None, WritePrecision.NS)
     )
+
+    # InfluxDB cannot store null numeric fields. Omit score for unscored points.
+    if score is not None:
+        point = point.field("score", float(score))
 
     with InfluxDBClient(
         url=os.getenv("INFLUXDB_URL", "http://localhost:8086"),

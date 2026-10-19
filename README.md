@@ -40,7 +40,7 @@ Grafana credentials are generated into the **ignored** `deploy/compose/.env` by 
 1. Open **http://localhost:8501** → **🗺️ Карта цифрового рудника**. Show both the **LIVE** map (observed data from Eclipse Ditto) and the separate **WHAT-IF** map. The labels and values on these maps are fetched server-side from Ditto (they are not hardcoded into the browser).
 2. Choose **«Перегрузка + мало топлива»**; the safety comparison shows **0 → 80/100** for default inputs. Switch to the map tab and click **«Применить AFTER в Ditto»**. The simulator publishes seven linked twin updates through `telemetry/#` MQTT → Eclipse Ditto. Click **«Считать текущие двойники»** to re-read the resulting states. Observe payload, risk, road, crusher, loader and mine tonnes on the map/table.
 3. Choose **«Скользкая дорога»** and click **Apply** again. The road twin's slowdown, crusher throughput and mine's modelled tonnage change together. Compare **🏭 Работа шахты** throughput and the line chart. Try **«Очередь на дробилке»** or **«Ремонт одного самосвала»** for additional operational constraints.
-4. Click **«Вернуть базовый режим»** to restore the scenario twins to the BEFORE settings. The *live* Example Mine twins are never altered by What-if experiments. Use **📋 Доказательства и допущения** → JSON export for reproducible model inputs and outputs.
+4. Open **🎲 Неопределённость**: compare P10/P50/P90 from 200 seeded simulations, then **⛏ Цикл карьера** to see the production stages. The stochastic inputs are explicit assumptions, not calibrated field probabilities. Click **«Вернуть базовый режим»** to restore the scenario twins to the BEFORE settings. The *live* Example Mine twins are never altered by What-if experiments. Use **📋 Доказательства и допущения** → JSON export for reproducible model inputs and outputs.
 5. Open Grafana to inspect running telemetry and risk trends. **A counterfactual model is not a live prediction.**
 
 **When to refresh:** MQTT → Ditto is asynchronous. The Apply action waits briefly; click the Refresh button if a newly published state has not yet appeared. This is a separate *simulation namespace*, not a command to actual trucks.
@@ -93,7 +93,8 @@ The browser visualization is **self-contained inline SVG**, with no external til
 - **Haulage:** two 90 t trucks, one 22 t-bucket excavator, one crusher, 3.2 km one-way route; 35 s per bucket and 60 s nominal dump. At most one truck loads/dumps at a time. 10 s simulated time steps, 8-hour default shift. Delay, repair and refuelling parameters are adjustable. The model counts **completed dumps only**.
 - **Manufacturer plausibility:** the 90 t classroom payload is in the class of **Komatsu HD785-7 (rated 91 t)** and **Caterpillar 777 (target payload 91.7 t)**. This does **not** assert our virtual site uses either exact machine. The remaining times/distances/fuel-rate assumptions are adapted from `examples/mine/simulator.py` and are **not manufacturer specifications**. Sources: [Komatsu HD785-7](https://www.komatsu.eu/en/Product-Archive/Rigid-Dump-Trucks/HD785-7), [CAT 777](https://www.cat.com/en_US/products/new/equipment/off-highway-trucks/off-highway-trucks/115560.html).
 - **Risk Score:** payload 81–90 t +25, >90 t +50, fuel <25% +15, fuel <15% +30, ML outlier +35; capped at 100. LOW 0–34, MEDIUM 35–69, HIGH 70–100. The **requested** payload can exceed capacity to test safety warnings, while operations enforce 90 t **actual** capacity.
-- **ML:** `mineguard/risk_model.joblib` (IsolationForest trained on synthetic payload/fuel/speed); sklearn pinned to 1.9.1, not trained on accident labels. Speed only influences the ML model, not a direct rule penalty.
+- **ML:** `mineguard/risk_model.joblib` (IsolationForest trained on synthetic payload/fuel/speed); sklearn pinned to 1.9.1, not trained on accident labels. Live scoring is gated to *moving loaded* `hauling` events only. Loading, queuing, unloading, return and refuelling are marked `ml_scored=false`; this does not mean safe. Heuristic payload/fuel checks remain active. Speed only influences the ML model, not a direct rule penalty.
+- **Uncertainty:** `mineguard/monte_carlo.py` reruns the same queue-and-haul model with seeded, **unvalidated assumptions**: ±10% travel speed, ±15% loading/dumping duration, 24 h mean time between failures, 30–90 min sampled repair duration. Results are P10/P50/P90 and share of simulated runs meeting the chosen plan; **not field probabilities**. The deterministic calculation is untouched when stochastic options are omitted.
 - **Interpretation:** Risk Score is an **ordinal demo heuristic, not probability of an accident**. Production, queues and tonnage are illustrative deterministic outputs, not field-validated productivity forecasts or monetary savings.
 - **Safety:** hypothetical changes modify *only MineGuard sandbox twins* in Ditto. They never instruct machines, write into Example Mine twins, or contaminate live Grafana measurements.
 
@@ -114,6 +115,7 @@ To verify **actual MQTT → Ditto propagation** of all seven scenario twins, and
 
 ```bash
 make mineguard-check
+RUN_TESTS=1 make mineguard-smoke
 ```
 
 To inspect live twin state use the web app's **Ditto twin state** table. The automated tests verify risk/operations and build native Ditto protocol messages; **the full clean Docker+Ditto chain must still be validated in a judge-equivalent environment**.
@@ -125,7 +127,10 @@ To inspect live twin state use the web app's **Ditto twin state** table. The aut
 | `mineguard/ditto_bridge.py` | Original twin definitions, Ditto HTTP reads, MQTT publish and linked state updates |
 | `mineguard/mine_map.py` | Self-contained spatial SVG from actual Ditto JSON values |
 | `mineguard/monitor.py`, `risk_score.py` | Live MQTT monitor, ML rule engine, writes monitored twin values and InfluxDB |
-| `mineguard/what_if_app.py`, `what_if.py`, `operations_sim.py` | Streamlit Decision Lab + deterministic hauling and queues |
+| `mineguard/what_if_app.py`, `what_if.py`, `operations_sim.py`, `monte_carlo.py` | Streamlit Decision Lab + deterministic hauling, optional synthetic Monte-Carlo variability |
+| `mineguard/quarry_view.py` | Process schematic; not a GPS or Ditto live position |
+| `mineguard/ml_gate.py` | State-aware IsolationForest gate; leaves rule-based Risk Score active |
+| `scripts/mineguard-smoke.sh` | Non-destructive integrated check after `make mineguard` |
 | `mineguard/tests/` | Regression, Ditto protocol and scenario propagation unit tests |
 | `mineguard/compose.yml` | Three service overlay (Ditto seed job, AI, web) and persistent local data volume |
 | `SUBMISSION.md` | Intent, modules, scenarios, assumptions and limits |
@@ -141,3 +146,15 @@ docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.y
 Do **not** use `down -v` / `make clean` for ordinary stopping. `alerts.csv` and `telemetry.csv` are retained in Docker volume `openegiz_mineguard-data`.
 
 **Team 026 · MIT licence (see LICENSE).** The evaluated submission is the last commit of the repository's `main` branch at the freeze deadline, not a ZIP uploaded to ChatGPT.
+
+### Jury-ready patch (from baseline f982361)
+
+This patch is an incremental change to the **previously live-tested** MineGuard AI 2.1 release.
+New local unit tests cover ML gating and Monte-Carlo calculations; running the real containerized
+smoke test remains necessary after installation. `make mineguard-smoke` checks container state,
+Streamlit health, MQTT log connection, recent InfluxDB points, Grafana health and a Ditto round trip.
+With `RUN_TESTS=1`, it also runs all included unit tests in the running web container. The
+MQTT log check captures Compose output before `grep`, avoiding a `pipefail` broken-pipe failure.
+
+`presentation.pdf` is not automatically updated by this code patch. See `PRESENTATION_UPDATES.md`
+and replace the old test count only after the final container test run.

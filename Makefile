@@ -158,3 +158,8 @@ mineguard: example-mine
 .PHONY: mineguard-check
 mineguard-check:
 	docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml -f examples/mine/compose.yml -f mineguard/compose.yml exec -T mineguard-web python -u /app/smoke_ditto.py
+
+# Non-destructive judge's smoke check (optionally RUN_TESTS=1).
+.PHONY: mineguard-smoke
+mineguard-smoke:
+	@bash scripts/mineguard-smoke.sh

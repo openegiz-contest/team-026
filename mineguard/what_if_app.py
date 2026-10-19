@@ -14,6 +14,8 @@ from what_if import simulate
 from ditto_bridge import (NAMESPACE, EXAMPLE_NAMESPACE, fetch_twin,
                           read_twin_values, build_scenario_updates, publish_messages)
 from mine_map import render_mine_map
+from monte_carlo import run_monte_carlo
+from quarry_view import render_cycle
 
 st.set_page_config(page_title="MineGuard AI | Decision Lab", page_icon="🚛", layout="wide", initial_sidebar_state="expanded")
 
@@ -108,9 +110,10 @@ elif after["risk"] >= 35:
 else:
     st.success("🟢 LOW RISK — по текущим эвристическим правилам высокий риск не обнаружен.")
 
-map_tab, risk_tab, ops_tab, evidence_tab = st.tabs([
+map_tab, risk_tab, ops_tab, mc_tab, cycle_tab, evidence_tab = st.tabs([
     "🗺️ Карта цифрового рудника", "🛡️ Безопасность и ML",
-    "🏭 Работа шахты", "📋 Доказательства и допущения"])
+    "🏭 Работа шахты", "🎲 Неопределённость", "⛏ Цикл карьера",
+    "📋 Доказательства и допущения"])
 
 with map_tab:
     st.markdown("### OpenEgiz / Eclipse Ditto · connected digital twins")
@@ -183,6 +186,8 @@ with map_tab:
                  "Скорость, км/ч": values.get("speed_kmh"),
                  "Топливо, %": values.get("fuel_pct"),
                  "Risk Score": values.get("risk_score"),
+                 "Оценка ML": "Выполнена" if values.get("ml_scored") else "Не применялась",
+                 "ML score": values.get("ml_score"),
                  "Состояние": values.get("state")}
                 for truck, values in live.items()]
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -207,7 +212,10 @@ with risk_tab:
              "Risk":after["risk"], "Уровень":after["level"]},
         ])
         st.dataframe(table, hide_index=True, use_container_width=True)
-        st.caption("Изменение скорости учитывается через ML-признаки; прямой штраф скорости в текущей Risk Score формуле отсутствует.")
+        st.caption("What-if оценивает гипотетический рейс с грузом (hauling). "
+                   "LIVE-монитор пропускает ML-оценку при погрузке/простое/разгрузке; "
+                   "Risk Score по правилам продолжает рассчитываться. "
+                   "Скорость влияет на ML, но не добавляет прямой штраф к Risk Score.")
     st.markdown("**Возможные действия оператора (не автоматическое управление):**")
     actions=[]
     if after["payload"] > 90: actions.append("Убрать перегрузку: запрос выше модельной вместимости 90 т.")
@@ -244,10 +252,39 @@ with ops_tab:
         st.warning("Запрошенный груз выше 90 т. Для производственной модели он ограничен вместимостью 90 т; Risk Score оценивает запрошенный перегруз отдельно.")
     st.caption("Модель считает завершённые рейсы двух машин за смену. Потери / прирост рассчитаны относительно сценария BEFORE, не доказаны полевыми испытаниями.")
 
+@st.cache_data(show_spinner=False)
+def cached_mc(cfg, plan):
+    return run_monte_carlo(cfg, n=200, seed=42, plan_tonnes=plan)
+
+mc_result = cached_mc(scenario_cfg, base_ops["tonnes"])
+with mc_tab:
+    st.markdown("### Разброс результата смены в демонстрационной модели")
+    st.caption("200 воспроизводимых прогонов; seed=42. Скорость ±10%, "
+               "время погрузки и разгрузки ±15%, допущение MTBF=24 ч. "
+               "Это не вероятности для настоящего карьера.")
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Нижний дециль · P10", f"{mc_result['p10_tonnes']:,.0f} т".replace(",", " "))
+    p2.metric("Медиана · P50", f"{mc_result['p50_tonnes']:,.0f} т".replace(",", " "))
+    p3.metric("Верхний дециль · P90", f"{mc_result['p90_tonnes']:,.0f} т".replace(",", " "))
+    st.markdown(f"**Выполнение плана ({base_ops['tonnes']:,.0f} т):** "
+                f"{mc_result['plan_met_pct']:.1f}% модельных прогонов".replace(",", " "))
+    st.progress(mc_result['plan_met_pct']/100)
+    st.bar_chart(pd.DataFrame({"Тоннаж, т": mc_result["samples_tonnes"]}), height=240)
+    st.caption("Порядок значений на диаграмме соответствует номеру прогона, не времени. "
+               "Детерминированный вариант может быть оптимистичнее медианы.")
+
+with cycle_tab:
+    st.markdown("### Процесс перевозки руды · AFTER")
+    components.html(render_cycle(new_ops, title="Погрузка → перевозка → разгрузка"),
+                    height=345, scrolling=False)
+    st.caption("Отдельная технологическая схема по результатам симуляции. "
+               "LIVE-карта цифровых двойников находится на первой вкладке.")
+
 with evidence_tab:
     st.markdown("**Воспроизводимость и границы модели**")
     st.markdown("""
     - Live: Example Mine → MQTT → Ditto; MineGuard публикует рассчитанный Risk Score обратно в **собственные** двойники по MQTT.
+    - ML: IsolationForest оценивает **только движение с грузом** (hauling, speed > 1, payload > 0). Другие режимы: `ml_scored=false`, а не «безопасно».
     - What-if: обновляет 7 связанных *сценарных* двойников в `org.mineguard.team026` (дорога, погрузчик, техника, дробилка, заправка, рудник).
     - What-if Safety: **тот же** `risk_model.joblib` (IsolationForest), что и в `monitor.py`, и та же функция `calculate_risk()`.
     - Operations: независимая **детерминированная упрощённая модель** рейсов, очередей у одного экскаватора и одной дробилки.
@@ -256,12 +293,14 @@ with evidence_tab:
     - Заправка: 10 минут при уровне ниже 15%. Ремонт: разовая задержка первого самосвала после четверти смены.
     - Уровень топлива измеряется в %, а расход в процентных пунктах; **не** в литрах. Нет расчёта денежных потерь.
     - Простая модель очередей **не калибрована** реальными данными предприятия и не является промышленным прогнозом.
+    - Монте-Карло: 200 запусков с seed=42, допущения: скорость ±10%, этапы погрузки/разгрузки ±15%, MTBF 24 ч (не калиброванная оценка).
     - «Применить» и «Вернуть» публикуют значения в отдельные *демонстрационные* двойники Ditto; реальные управляющие команды технике не посылаются.
     - Изменения сценариев не меняют Example Mine / live-телеметрию и не подменяют измерения в Grafana.
     """)
     report={"generated_utc":datetime.now(timezone.utc).isoformat(), "team":"026",
             "safety":{"before":before,"after":after},"operations":{"before":base_ops,"after":new_ops},
-            "inputs":{"before":asdict(reference_cfg),"after":asdict(scenario_cfg)}}
+            "inputs":{"before":asdict(reference_cfg),"after":asdict(scenario_cfg)},
+            "monte_carlo":mc_result}
     st.download_button("⬇️ Скачать протокол эксперимента (JSON)",
                        data=json.dumps(report,ensure_ascii=False,indent=2),
                        file_name="mineguard_whatif_result.json",mime="application/json",use_container_width=True)

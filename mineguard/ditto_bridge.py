@@ -50,7 +50,8 @@ def _default_features(name):
     if name.startswith("truck-") or name.startswith("live-truck-"):
         return _features({"payload_t": (0, "t"), "fuel_pct": (80, "%"),
                           "speed_kmh": (0, "km/h"), "route_km": (0, "km"),
-                          "risk_score": 0, "risk_level": "LOW", "state": "idle", "anomaly": False})
+                          "risk_score": 0, "risk_level": "LOW", "state": "idle", "anomaly": False,
+                          "ml_scored": False})
     if name == "pit-01":
         return _features({"shift_tonnes": (0, "t"), "shift_hours": (8, "h"),
                           "risk_level": "LOW", "mode": "baseline"})
@@ -199,10 +200,11 @@ def publish_messages(messages, mqtt_host=None, mqtt_port=None):
             client.loop_stop()
 
 
-def live_monitor_values(payload, fuel, speed, route_km, risk, level, anomaly, state):
+def live_monitor_values(payload, fuel, speed, route_km, risk, level, anomaly, state, *, ml_scored=False, ml_score=None):
     return {"payload_t": (payload, "t"), "fuel_pct": (fuel, "%"),
             "speed_kmh": (speed, "km/h"), "route_km": (route_km, "km"),
             "risk_score": risk, "risk_level": level, "anomaly": bool(anomaly),
+            "ml_scored": bool(ml_scored), "ml_score": ml_score,
             "state": state, "updated_utc": datetime.now(timezone.utc).isoformat()}
 
 

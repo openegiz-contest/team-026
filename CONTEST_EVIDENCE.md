@@ -45,3 +45,23 @@ make mineguard-check
 ```
 
 The command sends a wet-road scenario into **seven Team 026 sandbox twins** via Mosquitto, polls Ditto's HTTP API until all seven changed values are present, then restores the baseline and confirms the restored states. It fails with a non-zero exit code if end-to-end propagation is not observed. **Not executed in this artifact-building environment because Docker Engine is unavailable.**
+
+## Incremental jury-ready patch evidence
+
+In the patch-authoring environment, `python -m unittest discover -s mineguard/tests -q`
+completed **34/34** tests with scikit-learn 1.8.0 reporting model-version warnings
+(the serialized IsolationForest was created with 1.9.1). The project container
+requirements pin the training version. This result is **not** equivalent to
+Docker integration: the updated images, live ML feed, new web tabs, Influx query,
+and bash smoke check remain to be validated on a live WSL/Docker host.
+
+Unscored ML states are **not** categorized as physically safe. The reported
+"zero anomalies" result is by design outside `hauling` and is not a metric
+of anomaly-classifier precision or recall. For evidence of true positive
+classification, `test_ml_gate.py` uses the shipped model and a known synthetic
+outlier **during a hauling state**.
+
+Monte-Carlo uses fixed synthetic parameter assumptions, not statistically
+calibrated operational risk. Recorded percentile values must be read from the
+app or reproduced with the stated seed, sample size, scenario and plan;
+do not copy figures from another implementation.
